@@ -13,3 +13,4 @@ hyper-util = { version = "0.1", features = ["full"] }
 reqwest = { version = "0.12", features = ["stream"] }
 tokio-util = "0.7.11"
 futures-util = "0.3.30"
+path-clean = "1.0.1"

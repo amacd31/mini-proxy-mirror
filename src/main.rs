@@ -4,6 +4,7 @@ use std::io::Write;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
+use path_clean::PathClean;
 use tokio_util::bytes::Bytes;
 use futures_util::TryStreamExt;
 use http_body_util::{combinators::BoxBody, BodyExt, Full, StreamBody};
@@ -70,14 +71,18 @@ async fn stream_request_from_mirror_or_cache(
 
 
 
-    let work_dir = "./cache".to_string();
+    let work_dir = Path::new("./cache").canonicalize().unwrap();
     println!("{:?}", work_dir);
     let uri = req.uri();
-    let cache_uri_path: String = (work_dir + uri.path()).to_owned();
+    let cache_uri_path: String = (work_dir.to_str().unwrap().to_owned() + uri.path()).to_owned();
     println!("{:?}", cache_uri_path);
 
-    let cached_file_path = Path::new(&cache_uri_path).to_path_buf();
+    let cached_file_path = Path::new(&cache_uri_path).clean().to_path_buf();
     println!("{:?}", cached_file_path);
+    if !cached_file_path.starts_with(work_dir) {
+        println!("Cached file path is not in cache directory.");
+        return Ok(not_found());
+    }
     let status: StatusCode;
 
     if cached_file_path.exists() && !uri.to_string().ends_with("/") {
