@@ -15,17 +15,26 @@ use hyper::{Request, Response, Result, StatusCode};
 use hyper_util::rt::TokioIo;
 use tokio::{fs::File, net::TcpListener};
 use tokio_util::io::{InspectReader, ReaderStream};
-
+use tracing::{debug, info, error, Level};
+use tracing_subscriber::FmtSubscriber;
 
 static NOTFOUND: &[u8] = b"Not Found";
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
+    let subscriber = FmtSubscriber::builder()
+        .with_max_level(Level::TRACE)
+        .finish();
+
+    tracing::subscriber::set_global_default(subscriber)
+        .expect("setting default subscriber failed");
+
+
     let addr: SocketAddr = "0.0.0.0:3030".parse().unwrap();
 
     let listener = TcpListener::bind(addr).await?;
-    println!("Listening on http://{}", addr);
+    info!("Listening on http://{}", addr);
 
     loop {
         let (stream, _) = listener.accept().await?;
@@ -36,7 +45,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 .serve_connection(io, service_fn(stream_request_from_mirror_or_cache))
                 .await
             {
-                println!("Failed to serve connection: {:?}", err);
+                error!("Failed to serve connection: {:?}", err);
             }
         });
     }
@@ -72,24 +81,24 @@ async fn stream_request_from_mirror_or_cache(
 
 
     let work_dir = Path::new("./cache").canonicalize().unwrap();
-    println!("{:?}", work_dir);
+    debug!("{:?}", work_dir);
     let uri = req.uri();
     let cache_uri_path: String = (work_dir.to_str().unwrap().to_owned() + uri.path()).to_owned();
-    println!("{:?}", cache_uri_path);
+    debug!("{:?}", cache_uri_path);
 
     let cached_file_path = Path::new(&cache_uri_path).clean().to_path_buf();
-    println!("{:?}", cached_file_path);
+    debug!("{:?}", cached_file_path);
     if !cached_file_path.starts_with(work_dir) {
-        println!("Cached file path is not in cache directory.");
+        debug!("Cached file path is not in cache directory.");
         return Ok(not_found());
     }
     let status: StatusCode;
 
     if cached_file_path.exists() && !uri.to_string().ends_with("/") {
-        println!("Cached file exists: {:?}", cached_file_path);
+        debug!("Cached file exists: {:?}", cached_file_path);
         let file = File::open(cached_file_path).await;
         if file.is_err() {
-            eprintln!("ERROR: Unable to open file.");
+            error!("ERROR: Unable to open file.");
             return Ok(not_found());
         }
 
@@ -106,10 +115,10 @@ async fn stream_request_from_mirror_or_cache(
         Ok(response)
     }
     else {
-        println!("{:?}", req);
         let resp = reqwest::get("http://archlinux.mirror.digitalpacific.com.au".to_owned()+&uri.to_string())
+        debug!("{:?}", req);
         .await.unwrap();
-        println!("{resp:#?}");
+        debug!("{resp:#?}");
         status = resp.status().clone();
         if status.is_success() && !uri.to_string().ends_with("/") {
             let stream = resp.bytes_stream().map_err(std::io::Error::other);
@@ -131,7 +140,7 @@ async fn stream_request_from_mirror_or_cache(
             let stream_body = StreamBody::new(stream.map_ok(Frame::data));
             let boxed_body = stream_body.boxed();
 
-            println!("{:?}", status);
+            debug!("{:?}", status);
             let response = Response::builder()
                 .status(status)
                 .body(boxed_body)
