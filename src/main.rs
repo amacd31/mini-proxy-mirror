@@ -90,6 +90,7 @@ fn not_found() -> Response<BoxBody<Bytes, std::io::Error>> {
 fn write_to_cache(
     temp_filename: PathBuf,
     cached_file_path: PathBuf,
+    headers: reqwest::header::HeaderMap,
 ) -> Box<dyn Fn(&[u8]) -> () + Send + Sync> {
     Box::new(move |data: &[u8]| {
         if data.len() > 0 {
@@ -108,12 +109,21 @@ fn write_to_cache(
                 cached_file_path.display()
             );
             std::fs::create_dir_all(cached_file_path.parent().unwrap()).unwrap();
+            let last_modified = headers.get("last-modified").unwrap().to_str().unwrap();
+            let last_modified = chrono::DateTime::parse_from_rfc2822(last_modified).unwrap();
+            let file_times = std::fs::FileTimes::new().set_modified(last_modified.into());
             let file = OpenOptions::new()
                 .create_new(true)
                 .write(true)
                 .open(cached_file_path.clone());
             if file.is_ok() {
                 std::fs::rename(temp_filename.clone(), cached_file_path.clone()).unwrap();
+                OpenOptions::new()
+                    .write(true)
+                    .open(cached_file_path.clone())
+                    .unwrap()
+                    .set_times(file_times)
+                    .unwrap();
             } else {
                 debug!("File already exists in cache: {:?}", cached_file_path);
                 debug!("Discarding temporary file: {:?}", temp_filename);
@@ -171,12 +181,13 @@ async fn stream_request_from_mirror_or_cache(
             .unwrap();
         debug!("{resp:#?}");
         status = resp.status().clone();
+        let headers = resp.headers().clone();
         if status.is_success() && !uri.to_string().ends_with("/") {
             let stream = resp.bytes_stream().map_err(std::io::Error::other);
             let async_stream = tokio_util::io::StreamReader::new(stream);
             let temp_name: String = repeat_with(fastrand::alphanumeric).take(12).collect();
             let temp_filename = tmp_dir.join(PathBuf::from(temp_name));
-            let curried_write_to_cache = write_to_cache(temp_filename, cached_file_path);
+            let curried_write_to_cache = write_to_cache(temp_filename, cached_file_path, headers);
             let reader_inspector = InspectReader::new(async_stream, curried_write_to_cache);
             let reader_stream = ReaderStream::new(reader_inspector);
             let stream_body = StreamBody::new(reader_stream.map_ok(Frame::data));
