@@ -102,7 +102,7 @@ async fn stream_request_from_mirror_or_cache(
     let tmp_dir = Path::new("./tmp").canonicalize().unwrap();
     debug!("Temporary directory: {:?}", tmp_dir);
     let work_dir = Path::new("./cache").canonicalize().unwrap();
-    debug!("{:?}", work_dir);
+    debug!("Cache directory: {:?}", work_dir);
     let uri = req.uri();
     let cache_uri_path: String = (work_dir.to_str().unwrap().to_owned() + uri.path()).to_owned();
     debug!("{:?}", cache_uri_path);
