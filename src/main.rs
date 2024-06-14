@@ -22,7 +22,7 @@ use tracing_subscriber::FmtSubscriber;
 static NOTFOUND: &[u8] = b"Not Found";
 static STREAM_BUFFER_SIZE: usize = 512usize.pow(2);
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(version, about, long_about = None)]
 struct Args {
     #[arg(short, long, default_value = "127.0.0.1")]
@@ -30,6 +30,12 @@ struct Args {
 
     #[arg(short, long, default_value_t = 3030)]
     port: usize,
+
+    #[arg(short, long, default_value = "./tmp")]
+    temp_dir: String,
+
+    #[arg(short, long, default_value = "./cache")]
+    cache_dir: String,
 }
 
 #[tokio::main]
@@ -51,12 +57,20 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let (stream, _) = listener.accept().await?;
         let io = TokioIo::new(stream);
 
-        tokio::task::spawn(async move {
-            if let Err(err) = http1::Builder::new()
-                .serve_connection(io, service_fn(stream_request_from_mirror_or_cache))
-                .await
-            {
-                error!("Failed to serve connection: {:?}", err);
+        tokio::task::spawn({
+            let closure_config = config.clone();
+            async move {
+                if let Err(err) = http1::Builder::new()
+                    .serve_connection(
+                        io,
+                        service_fn(move |req| {
+                            stream_request_from_mirror_or_cache(req, closure_config.clone())
+                        }),
+                    )
+                    .await
+                {
+                    error!("Failed to serve connection: {:?}", err);
+                }
             }
         });
     }
@@ -110,10 +124,11 @@ fn write_to_cache(
 
 async fn stream_request_from_mirror_or_cache(
     req: Request<hyper::body::Incoming>,
+    config: Args,
 ) -> Result<Response<BoxBody<Bytes, std::io::Error>>> {
-    let tmp_dir = Path::new("./tmp").canonicalize().unwrap();
+    let tmp_dir = Path::new(&config.temp_dir).canonicalize().unwrap();
     debug!("Temporary directory: {:?}", tmp_dir);
-    let work_dir = Path::new("./cache").canonicalize().unwrap();
+    let work_dir = Path::new(&config.cache_dir).canonicalize().unwrap();
     debug!("Cache directory: {:?}", work_dir);
     let uri = req.uri();
     let cache_uri_path: String = (work_dir.to_str().unwrap().to_owned() + uri.path()).to_owned();
