@@ -1,12 +1,8 @@
-
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
-use std::iter::repeat_with;
-use path_clean::PathClean;
-use tokio_util::bytes::Bytes;
 use futures_util::TryStreamExt;
 use http_body_util::{combinators::BoxBody, BodyExt, Full, StreamBody};
 use hyper::body::Frame;
@@ -14,9 +10,12 @@ use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Request, Response, Result, StatusCode};
 use hyper_util::rt::TokioIo;
+use path_clean::PathClean;
+use std::iter::repeat_with;
 use tokio::{fs::File, net::TcpListener};
+use tokio_util::bytes::Bytes;
 use tokio_util::io::{InspectReader, ReaderStream};
-use tracing::{debug, info, error, Level};
+use tracing::{debug, error, info, Level};
 use tracing_subscriber::FmtSubscriber;
 
 static NOTFOUND: &[u8] = b"Not Found";
@@ -24,14 +23,11 @@ static STREAM_BUFFER_SIZE: usize = 512usize.pow(2);
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::TRACE)
         .finish();
 
-    tracing::subscriber::set_global_default(subscriber)
-        .expect("setting default subscriber failed");
-
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
     let addr: SocketAddr = "0.0.0.0:3030".parse().unwrap();
 
@@ -61,7 +57,10 @@ fn not_found() -> Response<BoxBody<Bytes, std::io::Error>> {
         .unwrap()
 }
 
-fn write_to_cache(temp_filename: PathBuf, cached_file_path: PathBuf) -> Box<dyn Fn(&[u8]) -> () + Send + Sync> {
+fn write_to_cache(
+    temp_filename: PathBuf,
+    cached_file_path: PathBuf,
+) -> Box<dyn Fn(&[u8]) -> () + Send + Sync> {
     Box::new(move |data: &[u8]| {
         if data.len() > 0 {
             std::fs::create_dir_all(temp_filename.parent().unwrap()).unwrap();
@@ -72,9 +71,12 @@ fn write_to_cache(temp_filename: PathBuf, cached_file_path: PathBuf) -> Box<dyn 
                 .open(temp_filename.clone())
                 .unwrap();
             file.write_all(data).unwrap();
-        }
-        else {
-            debug!("Renaming temp file '{}' to cached file '{}'.", temp_filename.display(), cached_file_path.display());
+        } else {
+            debug!(
+                "Renaming temp file '{}' to cached file '{}'.",
+                temp_filename.display(),
+                cached_file_path.display()
+            );
             std::fs::create_dir_all(cached_file_path.parent().unwrap()).unwrap();
             let file = OpenOptions::new()
                 .create_new(true)
@@ -82,8 +84,7 @@ fn write_to_cache(temp_filename: PathBuf, cached_file_path: PathBuf) -> Box<dyn 
                 .open(cached_file_path.clone());
             if file.is_ok() {
                 std::fs::rename(temp_filename.clone(), cached_file_path.clone()).unwrap();
-            }
-            else {
+            } else {
                 debug!("File already exists in cache: {:?}", cached_file_path);
                 debug!("Discarding temporary file: {:?}", temp_filename);
                 std::fs::remove_file(temp_filename.clone()).unwrap();
@@ -97,9 +98,6 @@ fn write_to_cache(temp_filename: PathBuf, cached_file_path: PathBuf) -> Box<dyn 
 async fn stream_request_from_mirror_or_cache(
     req: Request<hyper::body::Incoming>,
 ) -> Result<Response<BoxBody<Bytes, std::io::Error>>> {
-
-
-
     let tmp_dir = Path::new("./tmp").canonicalize().unwrap();
     debug!("Temporary directory: {:?}", tmp_dir);
     let work_dir = Path::new("./cache").canonicalize().unwrap();
@@ -135,11 +133,13 @@ async fn stream_request_from_mirror_or_cache(
             .body(boxed_body)
             .unwrap();
         Ok(response)
-    }
-    else {
-        let resp = reqwest::get("http://archlinux.mirror.digitalpacific.com.au".to_owned()+&uri.to_string())
+    } else {
         debug!("{:?}", req);
-        .await.unwrap();
+        let resp = reqwest::get(
+            "http://archlinux.mirror.digitalpacific.com.au".to_owned() + &uri.to_string(),
+        )
+        .await
+        .unwrap();
         debug!("{resp:#?}");
         status = resp.status().clone();
         if status.is_success() && !uri.to_string().ends_with("/") {
@@ -158,21 +158,14 @@ async fn stream_request_from_mirror_or_cache(
                 .body(boxed_body)
                 .unwrap();
             Ok(response)
-        }
-        else {
+        } else {
             let stream = resp.bytes_stream().map_err(std::io::Error::other);
             let stream_body = StreamBody::new(stream.map_ok(Frame::data));
             let boxed_body = stream_body.boxed();
 
             debug!("{:?}", status);
-            let response = Response::builder()
-                .status(status)
-                .body(boxed_body)
-                .unwrap();
+            let response = Response::builder().status(status).body(boxed_body).unwrap();
             Ok(response)
-        
         }
-
     }
-
 }
