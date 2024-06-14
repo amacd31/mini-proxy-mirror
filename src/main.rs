@@ -3,6 +3,7 @@ use std::io::Write;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
+use clap::Parser;
 use futures_util::TryStreamExt;
 use http_body_util::{combinators::BoxBody, BodyExt, Full, StreamBody};
 use hyper::body::Frame;
@@ -21,15 +22,27 @@ use tracing_subscriber::FmtSubscriber;
 static NOTFOUND: &[u8] = b"Not Found";
 static STREAM_BUFFER_SIZE: usize = 512usize.pow(2);
 
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    #[arg(short, long, default_value = "127.0.0.1")]
+    addr: String,
+
+    #[arg(short, long, default_value_t = 3030)]
+    port: usize,
+}
+
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let config = Args::parse();
+
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::TRACE)
         .finish();
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
-    let addr: SocketAddr = "0.0.0.0:3030".parse().unwrap();
+    let addr: SocketAddr = format!("{}:{}", config.addr, config.port).parse().unwrap();
 
     let listener = TcpListener::bind(addr).await?;
     info!("Listening on http://{}", addr);
