@@ -4,6 +4,7 @@ use std::io::Write;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
+use std::iter::repeat_with;
 use path_clean::PathClean;
 use tokio_util::bytes::Bytes;
 use futures_util::TryStreamExt;
@@ -59,16 +60,34 @@ fn not_found() -> Response<BoxBody<Bytes, std::io::Error>> {
         .unwrap()
 }
 
-fn write_to_cache(cached_file_path: PathBuf) -> Box<dyn Fn(&[u8]) -> () + Send + Sync> {
+fn write_to_cache(temp_filename: PathBuf, cached_file_path: PathBuf) -> Box<dyn Fn(&[u8]) -> () + Send + Sync> {
     Box::new(move |data: &[u8]| {
-            std::fs::create_dir_all(cached_file_path.parent().unwrap()).unwrap();
+        if data.len() > 0 {
+            std::fs::create_dir_all(temp_filename.parent().unwrap()).unwrap();
             let mut file = OpenOptions::new()
                 .write(true)
                 .append(true)
                 .create(true)
-                .open(cached_file_path.clone())
+                .open(temp_filename.clone())
                 .unwrap();
             file.write_all(data).unwrap();
+        }
+        else {
+            debug!("Renaming temp file '{}' to cached file '{}'.", temp_filename.display(), cached_file_path.display());
+            std::fs::create_dir_all(cached_file_path.parent().unwrap()).unwrap();
+            let file = OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(cached_file_path.clone());
+            if file.is_ok() {
+                std::fs::rename(temp_filename.clone(), cached_file_path.clone()).unwrap();
+            }
+            else {
+                debug!("File already exists in cache: {:?}", cached_file_path);
+                debug!("Discarding temporary file: {:?}", temp_filename);
+                std::fs::remove_file(temp_filename.clone()).unwrap();
+            }
+        }
 
         ()
     })
@@ -80,6 +99,8 @@ async fn stream_request_from_mirror_or_cache(
 
 
 
+    let tmp_dir = Path::new("./tmp").canonicalize().unwrap();
+    debug!("Temporary directory: {:?}", tmp_dir);
     let work_dir = Path::new("./cache").canonicalize().unwrap();
     debug!("{:?}", work_dir);
     let uri = req.uri();
@@ -123,7 +144,9 @@ async fn stream_request_from_mirror_or_cache(
         if status.is_success() && !uri.to_string().ends_with("/") {
             let stream = resp.bytes_stream().map_err(std::io::Error::other);
             let async_stream = tokio_util::io::StreamReader::new(stream);
-            let curried_write_to_cache = write_to_cache(cached_file_path);
+            let temp_name: String = repeat_with(fastrand::alphanumeric).take(12).collect();
+            let temp_filename = tmp_dir.join(PathBuf::from(temp_name));
+            let curried_write_to_cache = write_to_cache(temp_filename, cached_file_path);
             let reader_inspector = InspectReader::new(async_stream, curried_write_to_cache);
             let reader_stream = ReaderStream::new(reader_inspector);
             let stream_body = StreamBody::new(reader_stream.map_ok(Frame::data));
