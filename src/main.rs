@@ -20,6 +20,7 @@ use tracing::{debug, info, error, Level};
 use tracing_subscriber::FmtSubscriber;
 
 static NOTFOUND: &[u8] = b"Not Found";
+static STREAM_BUFFER_SIZE: usize = 512usize.pow(2);
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -125,7 +126,7 @@ async fn stream_request_from_mirror_or_cache(
 
         let file: File = file.unwrap();
 
-        let reader_stream = ReaderStream::new(file);
+        let reader_stream = ReaderStream::with_capacity(file, STREAM_BUFFER_SIZE);
         let stream_body = StreamBody::new(reader_stream.map_ok(Frame::data));
 
         let boxed_body = stream_body.boxed();
