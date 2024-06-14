@@ -25,6 +25,9 @@ static STREAM_BUFFER_SIZE: usize = 512usize.pow(2);
 #[derive(Parser, Debug, Clone)]
 #[command(version, about, long_about = None)]
 struct Args {
+    #[arg()]
+    host: String,
+
     #[arg(short, long, default_value = "127.0.0.1")]
     addr: String,
 
@@ -163,11 +166,9 @@ async fn stream_request_from_mirror_or_cache(
         Ok(response)
     } else {
         debug!("{:?}", req);
-        let resp = reqwest::get(
-            "http://archlinux.mirror.digitalpacific.com.au".to_owned() + &uri.to_string(),
-        )
-        .await
-        .unwrap();
+        let resp = reqwest::get(config.host.to_owned() + &uri.to_string())
+            .await
+            .unwrap();
         debug!("{resp:#?}");
         status = resp.status().clone();
         if status.is_success() && !uri.to_string().ends_with("/") {
