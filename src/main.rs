@@ -3,6 +3,7 @@ use std::io::Write;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
+use chrono::Utc;
 use clap::Parser;
 use futures_util::TryStreamExt;
 use http_body_util::{combinators::BoxBody, BodyExt, Full, StreamBody};
@@ -160,7 +161,24 @@ async fn stream_request_from_mirror_or_cache(
     let headers = resp.headers().clone();
 
     if cached_file_path.exists() && !uri.to_string().ends_with("/") {
-        debug!("Cached file exists: {:?}", cached_file_path);
+        let cached_last_modfied: chrono::DateTime<Utc> = cached_file_path
+            .metadata()
+            .unwrap()
+            .modified()
+            .unwrap()
+            .into();
+        let server_last_modified = headers.get("last-modified").unwrap().to_str().unwrap();
+        let server_last_modified =
+            chrono::DateTime::parse_from_rfc2822(server_last_modified).unwrap();
+        if server_last_modified > cached_last_modfied {
+            debug!("Cached file is stale. Removing and re-fetching.");
+            std::fs::remove_file(cached_file_path.clone()).unwrap();
+            return write_and_stream(req, resp, tmp_dir, cached_file_path, headers);
+        }
+    }
+
+    if cached_file_path.exists() && !uri.to_string().ends_with("/") {
+        debug!("Cached file exists, serving: {:?}", cached_file_path);
         let file = File::open(cached_file_path).await;
         if file.is_err() {
             error!("ERROR: Unable to open file.");
