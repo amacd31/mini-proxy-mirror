@@ -40,6 +40,9 @@ struct Args {
 
     #[arg(short, long, default_value = "./cache")]
     cache_dir: String,
+
+    #[arg(short, long, default_value_t = false)]
+    refresh: bool,
 }
 
 #[tokio::main]
@@ -160,7 +163,7 @@ async fn stream_request_from_mirror_or_cache(
     debug!("{resp:#?}");
     let headers = resp.headers().clone();
 
-    if cached_file_path.exists() && !uri.to_string().ends_with("/") {
+    if config.refresh && cached_file_path.exists() && !uri.to_string().ends_with("/") {
         let cached_last_modfied: chrono::DateTime<Utc> = cached_file_path
             .metadata()
             .unwrap()
