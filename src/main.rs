@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::Utc;
 use clap::Parser;
+use clap_verbosity_flag::InfoLevel;
 use futures_util::TryStreamExt;
 use http_body_util::{combinators::BoxBody, BodyExt, Full, StreamBody};
 use hyper::body::Frame;
@@ -17,7 +18,8 @@ use std::iter::repeat_with;
 use tokio::{fs::File, net::TcpListener};
 use tokio_util::bytes::Bytes;
 use tokio_util::io::{InspectReader, ReaderStream};
-use tracing::{debug, error, info, Level};
+use tracing::{debug, error, info};
+use tracing_log::AsTrace;
 use tracing_subscriber::FmtSubscriber;
 
 static NOTFOUND: &[u8] = b"Not Found";
@@ -43,6 +45,9 @@ struct Args {
 
     #[arg(short, long, default_value_t = false)]
     refresh: bool,
+
+    #[command(flatten)]
+    verbose: clap_verbosity_flag::Verbosity<InfoLevel>,
 }
 
 #[tokio::main]
@@ -50,7 +55,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let config = Args::parse();
 
     let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::TRACE)
+        .with_max_level(config.verbose.log_level_filter().as_trace())
         .finish();
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
