@@ -153,7 +153,11 @@ async fn stream_request_from_mirror_or_cache(
         debug!("Cached file path is not in cache directory.");
         return Ok(not_found());
     }
-    let status: StatusCode;
+    let resp = reqwest::get(config.host.to_owned() + &uri.to_string())
+        .await
+        .unwrap();
+    debug!("{resp:#?}");
+    let headers = resp.headers().clone();
 
     if cached_file_path.exists() && !uri.to_string().ends_with("/") {
         debug!("Cached file exists: {:?}", cached_file_path);
@@ -175,37 +179,44 @@ async fn stream_request_from_mirror_or_cache(
             .unwrap();
         Ok(response)
     } else {
-        debug!("{:?}", req);
-        let resp = reqwest::get(config.host.to_owned() + &uri.to_string())
-            .await
+        debug!("File not not in cache, fetching.");
+        write_and_stream(req, resp, tmp_dir, cached_file_path, headers)
+    }
+}
+
+fn write_and_stream(
+    req: Request<hyper::body::Incoming>,
+    resp: reqwest::Response,
+    tmp_dir: PathBuf,
+    cached_file_path: PathBuf,
+    headers: hyper::HeaderMap,
+) -> Result<Response<BoxBody<Bytes, std::io::Error>>> {
+    debug!("{:?}", req);
+    let uri = req.uri();
+    let status = resp.status().clone();
+    if status.is_success() && !uri.to_string().ends_with("/") {
+        let stream = resp.bytes_stream().map_err(std::io::Error::other);
+        let async_stream = tokio_util::io::StreamReader::new(stream);
+        let temp_name: String = repeat_with(fastrand::alphanumeric).take(12).collect();
+        let temp_filename = tmp_dir.join(PathBuf::from(temp_name));
+        let curried_write_to_cache = write_to_cache(temp_filename, cached_file_path, headers);
+        let reader_inspector = InspectReader::new(async_stream, curried_write_to_cache);
+        let reader_stream = ReaderStream::new(reader_inspector);
+        let stream_body = StreamBody::new(reader_stream.map_ok(Frame::data));
+        let boxed_body = stream_body.boxed();
+
+        let response = Response::builder()
+            .status(StatusCode::OK)
+            .body(boxed_body)
             .unwrap();
-        debug!("{resp:#?}");
-        status = resp.status().clone();
-        let headers = resp.headers().clone();
-        if status.is_success() && !uri.to_string().ends_with("/") {
-            let stream = resp.bytes_stream().map_err(std::io::Error::other);
-            let async_stream = tokio_util::io::StreamReader::new(stream);
-            let temp_name: String = repeat_with(fastrand::alphanumeric).take(12).collect();
-            let temp_filename = tmp_dir.join(PathBuf::from(temp_name));
-            let curried_write_to_cache = write_to_cache(temp_filename, cached_file_path, headers);
-            let reader_inspector = InspectReader::new(async_stream, curried_write_to_cache);
-            let reader_stream = ReaderStream::new(reader_inspector);
-            let stream_body = StreamBody::new(reader_stream.map_ok(Frame::data));
-            let boxed_body = stream_body.boxed();
+        Ok(response)
+    } else {
+        let stream = resp.bytes_stream().map_err(std::io::Error::other);
+        let stream_body = StreamBody::new(stream.map_ok(Frame::data));
+        let boxed_body = stream_body.boxed();
 
-            let response = Response::builder()
-                .status(StatusCode::OK)
-                .body(boxed_body)
-                .unwrap();
-            Ok(response)
-        } else {
-            let stream = resp.bytes_stream().map_err(std::io::Error::other);
-            let stream_body = StreamBody::new(stream.map_ok(Frame::data));
-            let boxed_body = stream_body.boxed();
-
-            debug!("{:?}", status);
-            let response = Response::builder().status(status).body(boxed_body).unwrap();
-            Ok(response)
-        }
+        debug!("{:?}", status);
+        let response = Response::builder().status(status).body(boxed_body).unwrap();
+        Ok(response)
     }
 }
