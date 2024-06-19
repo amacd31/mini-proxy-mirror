@@ -113,7 +113,7 @@ fn write_to_cache(
                 .write(true)
                 .append(true)
                 .create(true)
-                .open(temp_filename.clone())
+                .open(&temp_filename)
                 .unwrap();
             file.write_all(data).unwrap();
         } else {
@@ -128,19 +128,19 @@ fn write_to_cache(
             let file = OpenOptions::new()
                 .create_new(true)
                 .write(true)
-                .open(cached_file_path.clone());
+                .open(&cached_file_path);
             if file.is_ok() {
-                std::fs::rename(temp_filename.clone(), cached_file_path.clone()).unwrap();
+                std::fs::rename(&temp_filename, &cached_file_path).unwrap();
                 OpenOptions::new()
                     .write(true)
-                    .open(cached_file_path.clone())
+                    .open(&cached_file_path)
                     .unwrap()
                     .set_times(file_times)
                     .unwrap();
             } else {
                 debug!("File already exists in cache: {:?}", cached_file_path);
                 debug!("Discarding temporary file: {:?}", temp_filename);
-                std::fs::remove_file(temp_filename.clone()).unwrap();
+                std::fs::remove_file(&temp_filename).unwrap();
             }
         }
 
@@ -187,7 +187,7 @@ async fn stream_request_from_mirror_or_cache(
             chrono::DateTime::parse_from_rfc2822(server_last_modified).unwrap();
         if server_last_modified > cached_last_modfied {
             debug!("Cached file is stale. Removing and re-fetching.");
-            std::fs::remove_file(cached_file_path.clone()).unwrap();
+            std::fs::remove_file(&cached_file_path).unwrap();
             return write_and_stream(req, resp, tmp_dir, cached_file_path, headers);
         }
     }
@@ -226,7 +226,7 @@ fn write_and_stream(
 ) -> Result<Response<BoxBody<Bytes, std::io::Error>>> {
     debug!("{:?}", req);
     let uri = req.uri();
-    let status = resp.status().clone();
+    let status = resp.status();
     if status.is_success() && !uri.to_string().ends_with("/") {
         let stream = resp.bytes_stream().map_err(std::io::Error::other);
         let async_stream = tokio_util::io::StreamReader::new(stream);
