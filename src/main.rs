@@ -65,18 +65,24 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(addr).await?;
     info!("Listening on http://{}", addr);
 
+    let client = reqwest::Client::new();
     loop {
         let (stream, _) = listener.accept().await?;
         let io = TokioIo::new(stream);
 
         tokio::task::spawn({
             let closure_config = config.clone();
+            let client = client.clone();
             async move {
                 if let Err(err) = http1::Builder::new()
                     .serve_connection(
                         io,
                         service_fn(move |req| {
-                            stream_request_from_mirror_or_cache(req, closure_config.clone())
+                            stream_request_from_mirror_or_cache(
+                                req,
+                                closure_config.clone(),
+                                client.clone(),
+                            )
                         }),
                     )
                     .await
@@ -147,6 +153,7 @@ fn write_to_cache(
 async fn stream_request_from_mirror_or_cache(
     req: Request<hyper::body::Incoming>,
     config: Args,
+    client: reqwest::Client,
 ) -> Result<Response<BoxBody<Bytes, std::io::Error>>> {
     let tmp_dir = Path::new(&config.temp_dir).canonicalize().unwrap();
     debug!("Temporary directory: {:?}", tmp_dir);
@@ -162,7 +169,9 @@ async fn stream_request_from_mirror_or_cache(
         debug!("Cached file path is not in cache directory.");
         return Ok(not_found());
     }
-    let resp = reqwest::get(config.host.to_owned() + &uri.to_string())
+    let resp = client
+        .get(config.host.to_owned() + &uri.to_string())
+        .send()
         .await
         .unwrap();
     debug!("{resp:#?}");
