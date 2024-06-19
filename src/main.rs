@@ -109,7 +109,6 @@ fn write_to_cache(
 ) -> Box<dyn Fn(&[u8]) -> () + Send + Sync> {
     Box::new(move |data: &[u8]| {
         if data.len() > 0 {
-            std::fs::create_dir_all(temp_filename.parent().unwrap()).unwrap();
             let mut file = OpenOptions::new()
                 .write(true)
                 .append(true)
@@ -123,7 +122,6 @@ fn write_to_cache(
                 temp_filename.display(),
                 cached_file_path.display()
             );
-            std::fs::create_dir_all(cached_file_path.parent().unwrap()).unwrap();
             let last_modified = headers.get("last-modified").unwrap().to_str().unwrap();
             let last_modified = chrono::DateTime::parse_from_rfc2822(last_modified).unwrap();
             let file_times = std::fs::FileTimes::new().set_modified(last_modified.into());
@@ -234,6 +232,10 @@ fn write_and_stream(
         let async_stream = tokio_util::io::StreamReader::new(stream);
         let temp_name: String = repeat_with(fastrand::alphanumeric).take(12).collect();
         let temp_filename = tmp_dir.join(PathBuf::from(temp_name));
+        // Pre-create the required directories here instead of on each iteration of the stream
+        // This reduces write overhead and improves throughput
+        std::fs::create_dir_all(temp_filename.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(cached_file_path.parent().unwrap()).unwrap();
         let curried_write_to_cache = write_to_cache(temp_filename, cached_file_path, headers);
         let reader_inspector = InspectReader::new(async_stream, curried_write_to_cache);
         let reader_stream = ReaderStream::new(reader_inspector);
