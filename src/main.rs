@@ -106,11 +106,10 @@ fn write_to_cache(
     temp_filename: PathBuf,
     cached_file_path: PathBuf,
     headers: reqwest::header::HeaderMap,
-) -> Box<dyn Fn(&[u8]) -> () + Send + Sync> {
+) -> Box<dyn Fn(&[u8]) + Send + Sync> {
     Box::new(move |data: &[u8]| {
-        if data.len() > 0 {
+        if !data.is_empty() {
             let mut file = OpenOptions::new()
-                .write(true)
                 .append(true)
                 .create(true)
                 .open(&temp_filename)
@@ -143,8 +142,6 @@ fn write_to_cache(
                 std::fs::remove_file(&temp_filename).unwrap();
             }
         }
-
-        ()
     })
 }
 
@@ -175,7 +172,7 @@ async fn stream_request_from_mirror_or_cache(
     debug!("{resp:#?}");
     let headers = resp.headers().clone();
 
-    if config.refresh && cached_file_path.exists() && !uri.to_string().ends_with("/") {
+    if config.refresh && cached_file_path.exists() && !uri.to_string().ends_with('/') {
         let cached_last_modfied: chrono::DateTime<Utc> = cached_file_path
             .metadata()
             .unwrap()
@@ -192,7 +189,7 @@ async fn stream_request_from_mirror_or_cache(
         }
     }
 
-    if cached_file_path.exists() && !uri.to_string().ends_with("/") {
+    if cached_file_path.exists() && !uri.to_string().ends_with('/') {
         debug!("Cached file exists, serving: {:?}", cached_file_path);
         let file = File::open(cached_file_path).await;
         if file.is_err() {
@@ -227,7 +224,7 @@ fn write_and_stream(
     debug!("{:?}", req);
     let uri = req.uri();
     let status = resp.status();
-    if status.is_success() && !uri.to_string().ends_with("/") {
+    if status.is_success() && !uri.to_string().ends_with('/') {
         let stream = resp.bytes_stream().map_err(std::io::Error::other);
         let async_stream = tokio_util::io::StreamReader::new(stream);
         let temp_name: String = repeat_with(fastrand::alphanumeric).take(12).collect();
